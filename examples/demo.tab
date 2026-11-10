@@ -1,0 +1,22 @@
+# demo.tab: a small chadtab to look at (chadtab top demo.tab; the surface's dial).  Nothing here runs anything harmful.
+PATH=/usr/local/bin:/usr/bin:/bin
+RUNLEVEL=3
+*  backup     cron:17 3 * * *  catchup
+|  --->       !sh -c "echo ok 1048576 nightly copy"
+|  % <--- @   status bytes ..note
+|  ==>        c4:reg/hosts avalon backup $status
+*  pulse      every:15m+4m
+|  --->       !sh -c "echo up"
+|  % <--- @   state
+|  ==>        c4:reg/hosts avalon pulse $state
+*  ci         every:1h+7m  catchup
+|  --->       !sh -c "echo green yes all checks"
+|  % <--- @   result passed ..summary
+|  ==>        c4:reg/builds chadtab ci $result
+*  report     cron:0 9,17 * * 1-5
+|  --->       !sh -c "echo sent"
+|  % <--- @   state
+|  ==>        c4:reg/builds chadtab report $state
+|  ==>        c4:reg/hosts avalon report $state
+*  rotate     cron:30 4 * * sun  level=5
+|  --->       !sh -c "echo rotated"

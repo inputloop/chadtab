@@ -138,7 +138,7 @@ TAB
 
   # 11 the views: status as JSON for Emacs and the surface; the text view has every block
   o=$(c status "$T/w/good.tab" --state "$S" --json) || fail "11 status json"
-  echo "$o" | "$PY" -c 'import json,sys; s=json.load(sys.stdin); b={x["name"]:x for x in s["blocks"]}; assert b["stamp"]["ok"] is True and b["stamp"]["hist"]==[1] and b["deep"]["last"] is None' 2>/dev/null || fail "11 status fields: $o"
+  echo "$o" | "$PY" -c 'import json,sys; s=json.load(sys.stdin); b={x["name"]:x for x in s["blocks"]}; assert b["stamp"]["ok"] is True and b["stamp"]["hist"]==[1] and b["deep"]["last"] is None and len(b["stamp"]["fires24"])==96 and b["stamp"]["binds"]==["reg"] and len(b["deep"]["fires24"])==24' 2>/dev/null || fail "11 status fields: $o"
   o=$(c status "$T/w/good.tab" --state "$S"); for b in stamp deep start missed; do echo "$o" | grep -q "^$b " || fail "11 text view lacks $b"; done
 }
 

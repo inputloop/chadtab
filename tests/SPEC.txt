@@ -20,5 +20,5 @@ Copyright 2026 INPUTLOOP (Bryant Frankford and Corwin Brust); CC-BY-SA-4.0.  Men
 10 The daemon, ticked at a set time, runs what is due and nothing else; a boot block runs on boot; a catchup
    block runs once for a fire missed while it was down; a block above the daemon's level does not run; a minute
    later the same block does not run again.
-11 status --json carries each block's last result and a history strip; the text view lists every block.
+11 status --json carries each block's last result, a history strip, its next day of fires (at most 96) and the registries it binds; the text view lists every block.
 Planted faults (--prove-red), each must turn the kit red: domor everylocal nolock onewriter noguard nosem levelinv.

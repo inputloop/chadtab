@@ -4,3 +4,4 @@ state/
 reg/
 __pycache__/
 deploy/*.plan
+REVISION

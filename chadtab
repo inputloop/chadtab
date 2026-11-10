@@ -60,7 +60,7 @@ import sys
 import time
 from pathlib import Path
 
-VERSION = "0.1.0 (2026-11-10)"
+VERSION = "0.1.1 (2026-11-10)"
 FAULT = os.environ.get("CHADTAB_FAULT", "")            # planted faults, for --prove-red only
 
 
@@ -644,6 +644,8 @@ def daemon(table, sd, level, once_at=None):
 
 # ---------------------------------------------------------------- views
 def status(table, sd, at=None):
+    """The table and its state as one object: for chadtab top, Emacs, the surface.  Each block carries its next
+    day of fires (fires24) and the registries it binds into (binds), so a view can draw the schedule as a graph."""
     env, level, blocks = read_table(table)
     st = load_state(sd)
     now = at or dt.datetime.now().replace(microsecond=0)
@@ -651,7 +653,14 @@ def status(table, sd, at=None):
     for b in blocks:
         last = st.get(b.name, {})
         nf = b.clock.fires_after(now)
-        rows.append({"name": b.name, "clock": b.clock.spec, "level": b.level, "catchup": b.catchup,
+        fires, c = [], now
+        while len(fires) < 96:                          # the next day's fires, for a dial
+            c = b.clock.fires_after(c)
+            if c is None or c > now + dt.timedelta(days=1):
+                break
+            fires.append(c.isoformat(timespec="minutes"))
+        binds = [s["arg"].split()[0][3:] for s in b.steps if s["role"] == "BIND" and s["arg"].startswith("c4:")]
+        rows.append({"fires24": fires, "binds": binds, "name": b.name, "clock": b.clock.spec, "level": b.level, "catchup": b.catchup,
                      "next": nf.isoformat() if nf else None, "last": last.get("start"), "ok": last.get("ok"),
                      "exit": last.get("exit"), "secs": last.get("secs"), "hist": st.get("_hist", {}).get(b.name, []),
                      "steps": [s["role"] for s in b.steps]})
@@ -662,7 +671,9 @@ def strip(h):
     return "".join("▮" if x else "▯" for x in h[-24:]) or "·"
 
 
-def render_top(s, width=100):
+def render_top(s, width=None):
+    import shutil
+    width = width or max(80, shutil.get_terminal_size((132, 40)).columns)
     out = [f"chadtab  {s['table']}  run-level {s['level']}  {s['now'].replace('T', ' ')}", ""]
     out.append(f"{'BLOCK':<16} {'CLOCK':<22} {'LV':>2} {'NEXT':<17} {'LAST':<17} {'RESULT':<8} {'SECS':>6}  RECENT")
     for r in s["blocks"]:
