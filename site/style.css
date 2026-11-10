@@ -1,0 +1,20 @@
+/* chadtab.com: one sheet, no scripts.  Copyright 2026 INPUTLOOP; CC-BY-SA-4.0. */
+:root { --bg: #f6f4ee; --ink: #1d1f22; --ink2: #555a62; --rule: #d9d4c7; --accent: #8a5a12; --green: #2d6a3e; --red: #a13226; --code: #ebe7dc; }
+@media (prefers-color-scheme: dark) { :root { --bg: #15171a; --ink: #e6e3dc; --ink2: #9aa0a8; --rule: #2c3036; --accent: #d9a24a; --green: #6fbf83; --red: #e2725f; --code: #1d2025; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.55 Charter, "Iowan Old Style", Georgia, serif; }
+main { max-width: 42rem; margin: 0 auto; padding: 3rem 1rem 4rem; }
+h1 { font: 700 3rem/1 ui-monospace, "IBM Plex Mono", Menlo, Consolas, monospace; letter-spacing: -0.02em; margin: 0.2rem 0 1rem; }
+h1.green { color: var(--green); } h1.red { color: var(--red); }
+h2 { font: 600 1rem/1.3 ui-monospace, "IBM Plex Mono", Menlo, Consolas, monospace; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent); margin: 2.2rem 0 0.5rem; }
+.kicker { font: 13px ui-monospace, Menlo, Consolas, monospace; color: var(--ink2); margin: 0; }
+.kicker a { color: var(--ink2); }
+.lede { font-size: 1.2rem; }
+a { color: var(--accent); }
+code, pre { font: 14px/1.5 ui-monospace, "IBM Plex Mono", Menlo, Consolas, monospace; }
+code { background: var(--code); padding: 0 0.25em; border-radius: 3px; }
+pre { background: var(--code); padding: 1rem; border-radius: 4px; overflow-x: auto; border-left: 3px solid var(--accent); }
+pre.tab .c { color: var(--ink2); } pre.tab .s, pre.tab .t { color: var(--accent); font-weight: 700; } pre.tab .a { color: var(--green); } pre.tab .k { text-decoration: underline dotted; }
+ul { padding-left: 1.2rem; } li { margin: 0.35rem 0; }
+footer { margin-top: 3rem; border-top: 1px solid var(--rule); padding-top: 1rem; color: var(--ink2); font-size: 15px; }
+.small { font-size: 14px; color: var(--ink2); }

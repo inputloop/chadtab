@@ -1,0 +1,13 @@
+# chadtab on gw33: chadtab's own CI, run by chadtab (dog food).  Installed by deploy/install.sh.
+PATH=/usr/local/bin:/usr/bin:/bin
+RUNLEVEL=3
+*  tests   every:1h+7m  catchup
+|  --->    !sh ci.sh
+|  % <--- @  result passed ..summary
+|  -->>    /var/www/chadtab.com/public/ci/runs.jsonl
+|  ==>     c4:/c4/g/z/chadtab/reg chadtab ci $result
+*  boot    boot
+|  --->    !sh ci.sh
+|  % <--- @  result passed ..summary
+|  -->>    /var/www/chadtab.com/public/ci/runs.jsonl
+|  ==>     c4:/c4/g/z/chadtab/reg chadtab ci $result

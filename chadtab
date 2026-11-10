@@ -1,0 +1,858 @@
+#!/usr/bin/env python3
+# chadtab -- a successor to cron that works on its own, and happens to have synergy with C4 and the ghostwheel.
+#
+# A chadtab is a chad.tab (Corwin's routing language: chadgram/chadgram.tsv) whose sources are clocks.  A block
+# starts at a SOURCE line ("*  NAME  CLOCK") and its steps follow on TRUNK lines ("|"), each one arrow:
+#
+#   # chadtab                              comments and blank lines are raw config, kept, never run
+#   PATH=/usr/local/bin:/usr/bin           NAME=VALUE before the first block: the environment every job gets
+#   RUNLEVEL=3                             this table's run-level (default 3); a block may say level=N
+#   *  backup   cron:17 3 * * *  catchup   cron's five fields; "catchup": one run for times missed while down
+#   |  --->  !sh backup.sh                 SINK to a command: "!" then the command line (run without a shell
+#                                          on Windows and POSIX alike: split like a POSIX shell, no globbing)
+#   |  % <--- @  status bytes ..note       CAPTURE: the command's last output line taken apart into fields by
+#                                          the chadgram rules (split on blanks; the ".." field takes the rest)
+#   |  -->>  log/backup.jsonl              APPEND the run's record (fields, exit, times) as one JSON line
+#   |  ==>  c4:STEM KEY COL $status        BIND: a guarded write into a C4 registry (below); $field or text
+#   *  pulse    every:15m+4m               every 15 minutes, 4 past the quarter (aligned to the epoch, UTC)
+#   *  once     at:2026-11-11T09:00        one time, local wall clock
+#   *  start    boot                       once each time the daemon starts
+#
+# GUARDED WRITES (the second writer C4 requires).  A registry STEM is laid out as cxr lays a table out:
+#   STEM/r/KEY/COL holds the value (the row's reading); STEM/c/COL/VALUE lists the keys (the column's reading).
+#   Each write is serialized (STEM/.lock, made with mkdir: atomic on every OS), written ahead as a chadgram
+#   line in the journal STEM/j ("seq when level writer key col ..value"), then written by two writers, r and
+#   c, each of which reads the other back (the reciprocal guard).  Only when both agree does the semaphore
+#   STEM/s advance; until then no reader sees the write, and a disagreement puts the old value back and
+#   journals FAILED.  A reader at run-level L sees a write made at level W when L <= W (lower or same order
+#   functionality reads what was written above or beside it), and only up to the semaphore.
+#
+# usage:  chadtab check TABLE                      read the table; say each block, its clock and next three fires
+#         chadtab next TABLE [--from ISO] [-n N]   the next N fire times of every block, merged, in order
+#         chadtab clock CLOCK FROM [N]             the next N fires of one clock after FROM (what the tests ask)
+#         chadtab run TABLE NAME                   run one block now (its steps, in order), as the daemon would
+#         chadtab daemon TABLE [--state DIR] [--level L] [--once-at ISO]
+#                                                  the scheduler: sleeps to the next fire, runs what is due,
+#                                                  keeps STATE/last.json, STATE/runs.jsonl; --once-at runs one
+#                                                  tick as if it were that time and stops (tests, dry rehearsal)
+#         chadtab top TABLE [--state DIR]          the operational view (in the spirit of btop): blocks, next
+#                                                  fire, last result, a strip of recent outcomes; q quits
+#         chadtab status TABLE [--state DIR] --json   the same, for Emacs, the surface, or anything else
+#         chadtab put STEM KEY COL VALUE [--level L] [--writer W]   one guarded write
+#         chadtab get STEM KEY COL [--level L]     the value a reader at level L may see (exit 3: none)
+#         chadtab verify STEM                      r and c agree everywhere, and the journal ends committed
+#         chadtab enc STRING                       the cxr naming rule, applied to one string
+#         chadtab startup TABLE [--write]          start the daemon at sign-in: a .cmd in the Windows Startup folder
+#                                                  (no Task Scheduler), or a systemd user unit; says first, writes on --write
+#         chadtab --version | --prove-red
+# exit:   0 ok  1 usage  2 table or registry fault  3 nothing visible  4 a guard refused  5 lock not taken
+#
+# Copyright 2026 INPUTLOOP (Bryant Frankford and Corwin Brust).  SPDX-License-Identifier: GPL-3.0-or-later
+# Mentat (for Corwin; claude-opus-5-5).  Python 3.8+, standard library only; runs on Windows and GNU/Linux.
+import datetime as dt
+import hashlib
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+VERSION = "0.1.0 (2026-11-10)"
+FAULT = os.environ.get("CHADTAB_FAULT", "")            # planted faults, for --prove-red only
+
+
+class Fail(Exception):
+    def __init__(self, msg, code=2):
+        super().__init__(msg)
+        self.code = code
+
+
+# ---------------------------------------------------------------- clocks
+NAMES = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6, "jul": 7, "aug": 8, "sep": 9, "oct": 10,
+         "nov": 11, "dec": 12, "sun": 0, "mon": 1, "tue": 2, "wed": 3, "thu": 4, "fri": 5, "sat": 6}
+RANGES = [(0, 59), (0, 23), (1, 31), (1, 12), (0, 7)]
+
+
+def cron_field(text, lo, hi):
+    """The set of values a cron field allows; 7 in day-of-week is Sunday (0)."""
+    out = set()
+    for part in text.lower().split(","):
+        step = 1
+        if "/" in part:
+            part, s = part.split("/", 1)
+            if not s.isdigit() or int(s) < 1:
+                raise Fail(f"cron step {s!r} is not a positive number")
+            step = int(s)
+        if part == "*":
+            a, b = lo, hi
+        else:
+            def num(x):
+                v = NAMES.get(x, None) if not x.isdigit() else int(x)
+                if v is None:
+                    raise Fail(f"cron value {x!r} is not a number or a month/day name")
+                return v
+            if "-" in part:
+                x, y = part.split("-", 1)
+                a, b = num(x), num(y)
+            else:
+                a = b = num(part)
+                if step > 1:
+                    b = hi
+        if a < lo or b > hi or a > b:
+            raise Fail(f"cron range {a}-{b} is outside {lo}-{hi}")
+        out.update(range(a, b + 1, step))
+    if hi == 7 and 7 in out:
+        out.discard(7)
+        out.add(0)
+    return out
+
+
+class Clock:
+    """One block's clock.  fires_after(t) is the first fire strictly after t (a naive local datetime), or None."""
+
+    def __init__(self, spec):
+        self.spec = spec.strip()
+        s = self.spec
+        if s.startswith("cron:"):
+            f = s[5:].split()
+            if len(f) != 5:
+                raise Fail(f"cron wants five fields (minute hour day month weekday): {s!r}")
+            self.kind = "cron"
+            self.f = [cron_field(x, *r) for x, r in zip(f, RANGES)]
+            self.dom_star, self.dow_star = f[2] == "*", f[4] == "*"
+        elif s.startswith("every:"):
+            m = re.fullmatch(r"every:(\d+)([smhd])(?:\+(\d+)([smhd]))?", s)
+            if not m:
+                raise Fail(f"every wants N then s, m, h or d, and an optional +offset: {s!r}")
+            u = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+            self.kind = "every"
+            self.period = int(m.group(1)) * u[m.group(2)]
+            self.offset = int(m.group(3) or 0) * u[m.group(4) or "s"]
+            if self.period < 1 or self.offset >= self.period:
+                raise Fail(f"every: the period must be at least 1s and the offset less than it: {s!r}")
+        elif s.startswith("at:"):
+            self.kind = "at"
+            try:
+                self.when = dt.datetime.fromisoformat(s[3:]).replace(tzinfo=None, second=0, microsecond=0)
+            except ValueError:
+                raise Fail(f"at wants a date and time, 2026-11-11T09:00: {s!r}")
+        elif s == "boot":
+            self.kind = "boot"
+        else:
+            raise Fail(f"unknown clock {s!r}: cron:..., every:..., at:... or boot")
+
+    def matches(self, t):
+        if self.kind != "cron":
+            return False
+        mi, hr, dom, mon, dow = self.f
+        if t.minute not in mi or t.hour not in hr or t.month not in mon:
+            return False
+        d_ok, w_ok = t.day in dom, (t.isoweekday() % 7) in dow
+        if self.dom_star or self.dow_star:            # cron's rule: when both are restricted, either may match
+            return d_ok and w_ok if FAULT != "domor" else (d_ok or w_ok)
+        return d_ok or w_ok
+
+    def fires_after(self, t):
+        if self.kind == "boot":
+            return None
+        if self.kind == "at":
+            return self.when if self.when > t else None
+        if self.kind == "every":
+            e = int(t.replace(tzinfo=dt.timezone.utc).timestamp()) if FAULT == "everylocal" else int(local_epoch(t))
+            n = ((e - self.offset) // self.period + 1) * self.period + self.offset
+            return from_epoch(n)
+        c = t.replace(second=0, microsecond=0) + dt.timedelta(minutes=1)
+        end = c + dt.timedelta(days=366 * 5)            # 29 Feb on a Monday can take years
+        while c < end:
+            if c.month not in self.f[3]:
+                c = (c.replace(day=1, hour=0, minute=0) + dt.timedelta(days=32)).replace(day=1)
+                continue
+            if not self.day_ok(c):
+                c = c.replace(hour=0, minute=0) + dt.timedelta(days=1)
+                continue
+            if c.hour not in self.f[1]:
+                c = c.replace(minute=0) + dt.timedelta(hours=1)
+                continue
+            if c.minute in self.f[0]:
+                return c
+            c += dt.timedelta(minutes=1)
+        return None
+
+    def day_ok(self, c):
+        dom, dow = self.f[2], self.f[4]
+        d_ok, w_ok = c.day in dom, (c.isoweekday() % 7) in dow
+        if self.dom_star or self.dow_star:
+            return d_ok and w_ok if FAULT != "domor" else (d_ok or w_ok)
+        return d_ok or w_ok
+
+
+def local_epoch(t):
+    """every: periods are aligned to the epoch in UTC seconds, so two machines agree on when a period falls."""
+    return time.mktime(t.timetuple())
+
+
+def from_epoch(e):
+    return dt.datetime.fromtimestamp(e).replace(microsecond=0)
+
+
+# ---------------------------------------------------------------- the table
+ARROWS = [("<-->", "DUPLEX"), ("<---", "CAPTURE"), ("--->", "SINK"), ("-->>", "APPEND"), ("==>", "BIND")]
+
+
+class Block:
+    def __init__(self, name, clock, words, line):
+        self.name, self.clock, self.line = name, clock, line
+        self.catchup = "catchup" in words
+        self.level = 3
+        for w in words:
+            if w.startswith("level="):
+                self.level = int(w[6:])
+        self.steps = []
+
+
+def read_table(path):
+    """(env, level, blocks) from a chadtab file."""
+    try:
+        lines = Path(path).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        raise Fail(f"cannot read {path}")
+    env, level, blocks, cur = {}, 3, [], None
+    for n, raw in enumerate(lines, 1):
+        s = raw.rstrip()
+        body = s.strip()
+        if not body or body.startswith("#"):
+            continue
+        if cur is None and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", body):
+            k, v = body.split("=", 1)
+            if k == "RUNLEVEL":
+                level = int(v)
+            else:
+                env[k] = v
+            continue
+        if body.startswith("*"):
+            parts = body[1:].split()
+            if len(parts) < 2:
+                raise Fail(f"line {n}: a block wants a name and a clock: {body!r}")
+            name, rest = parts[0], " ".join(parts[1:])
+            # the clock is everything up to the trailing words catchup / level=N
+            words = rest.split()
+            tail = []
+            while words and (words[-1] == "catchup" or words[-1].startswith("level=")):
+                tail.insert(0, words.pop())
+            if any(b.name == name for b in blocks):
+                raise Fail(f"line {n}: a second block named {name!r}")
+            cur = Block(name, Clock(" ".join(words)), tail, n)
+            cur.level = next((int(w[6:]) for w in tail if w.startswith("level=")), level)
+            blocks.append(cur)
+            continue
+        if body.startswith("|"):
+            if cur is None:
+                raise Fail(f"line {n}: a step before any block")
+            step = body[1:].strip()
+            for tok, role in ARROWS:
+                i = step.find(tok)
+                if i >= 0:
+                    marks = step[:i].split()
+                    arg = step[i + len(tok):].strip()
+                    while arg[:1] in ("%", "@", "$") and (len(arg) == 1 or arg[1] == " "):   # marks after the arrow
+                        marks.append(arg[0])
+                        arg = arg[1:].strip()
+                    cur.steps.append({"role": role, "marks": marks, "arg": arg, "line": n})
+                    break
+            else:
+                raise Fail(f"line {n}: a step needs an arrow (<---, --->, -->>, ==>): {body!r}")
+            continue
+        raise Fail(f"line {n}: not a setting, a block (*) or a step (|): {body!r}")
+    return env, level, blocks
+
+
+# ---------------------------------------------------------------- the chadgram rules (Chadgram.pm, as stated in RECIPE.org)
+def chadgram(line, fields):
+    """Split on blanks (runs count once, leading blanks ignored); a field written ..name takes the rest."""
+    names = [f[2:] if f.startswith("..") else f for f in fields]
+    slurp = bool(fields) and fields[-1].startswith("..")
+    parts = line.split(None, len(names) - 1) if slurp and names else line.split()
+    return dict(zip(names, parts))
+
+
+def expand(text, vals):
+    def sub(m):
+        return str(vals.get(m.group(1), ""))
+    return re.sub(r"\$([A-Za-z_][A-Za-z0-9_]*)", sub, text)
+
+
+# ---------------------------------------------------------------- the registry, and its two writers
+def enc(s):
+    """cxr's one naming rule: [a-z0-9._-] pass; an upper-case run is ^run^; any other byte %XX; '' is %;
+    . and .. are %2E; over 200 bytes is cut and ends %~ plus 16 hex of its sha256."""
+    if s == "":
+        return "%"
+    if s in (".", ".."):
+        return "%2E" * len(s)
+    out, i = [], 0
+    while i < len(s):
+        ch = s[i]
+        if "A" <= ch <= "Z":
+            j = i
+            while j < len(s) and "A" <= s[j] <= "Z":
+                j += 1
+            out.append("^" + s[i:j].lower() + "^")
+            i = j
+            continue
+        if ("a" <= ch <= "z") or ("0" <= ch <= "9") or ch in "._-":
+            out.append(ch)
+        else:
+            out.append("".join("%%%02X" % b for b in ch.encode("utf-8")))
+        i += 1
+    r = "".join(out)
+    if len(r.encode()) > 200:
+        r = r[:180] + "%~" + hashlib.sha256(s.encode()).hexdigest()[:16]
+    return r
+
+
+class Registry:
+    def __init__(self, stem):
+        self.stem = Path(stem)
+
+    # -- the lock: mkdir is atomic on Windows and POSIX alike
+    def lock(self, writer, wait=None):
+        wait = float(os.environ.get("CHADTAB_LOCK_WAIT", "10")) if wait is None else wait
+        lk = self.stem / ".lock"
+        self.stem.mkdir(parents=True, exist_ok=True)
+        t0 = time.time()
+        while True:
+            try:
+                if FAULT == "nolock":
+                    return
+                lk.mkdir()
+                (lk / "owner").write_text(f"{writer} {os.getpid()} {now_iso()}\n", encoding="utf-8")
+                return
+            except FileExistsError:
+                if time.time() - t0 > wait:
+                    who = (lk / "owner").read_text(encoding="utf-8", errors="replace").strip() if (lk / "owner").is_file() else "?"
+                    raise Fail(f"the registry {self.stem} is locked by {who}; nothing written", 5)
+                time.sleep(0.05)
+
+    def unlock(self):
+        lk = self.stem / ".lock"
+        try:
+            (lk / "owner").unlink()
+        except OSError:
+            pass
+        try:
+            lk.rmdir()
+        except OSError:
+            pass
+
+    def sem(self):
+        f = self.stem / "s"
+        try:
+            return int(f.read_text(encoding="utf-8").split()[0])
+        except (OSError, ValueError, IndexError):
+            return 0
+
+    def journal(self):
+        """Every journal line as a dict, in order (chadgram fields: seq when level writer state key col ..value)."""
+        f = self.stem / "j"
+        out = []
+        if f.is_file():
+            for line in f.read_text(encoding="utf-8").splitlines():
+                if line.strip():
+                    d = chadgram(line, ["seq", "when", "level", "writer", "state", "key", "col", "..value"])
+                    d["value"] = json.loads(d.get("value", '""'))
+                    d["seq"], d["level"] = int(d["seq"]), int(d["level"])
+                    out.append(d)
+        return out
+
+    def _jot(self, seq, level, writer, state, key, col, value):
+        with (self.stem / "j").open("a", encoding="utf-8", newline="\n") as fh:
+            fh.write(f"{seq} {now_iso()} {level} {enc(writer)} {state} {enc(key)} {enc(col)} {json.dumps(value)}\n")
+
+    def _r(self, key, col):
+        return self.stem / "r" / enc(key) / enc(col)
+
+    def _c(self, col, value):
+        return self.stem / "c" / enc(col) / enc(value)
+
+    def read_r(self, key, col):
+        f = self._r(key, col)
+        return f.read_text(encoding="utf-8") if f.is_file() else None
+
+    def members(self, col, value):
+        f = self._c(col, value)
+        return [x for x in f.read_text(encoding="utf-8").splitlines() if x] if f.is_file() else []
+
+    @staticmethod
+    def _atomic(path, text):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp-" + str(os.getpid()))
+        tmp.write_text(text, encoding="utf-8", newline="\n")
+        os.replace(tmp, path)
+
+    def _write_c(self, col, old, new, key):
+        if old is not None:
+            m = [k for k in self.members(col, old) if k != key]
+            f = self._c(col, old)
+            if m:
+                self._atomic(f, "\n".join(m) + "\n")
+            elif f.is_file():
+                f.unlink()
+        if FAULT == "onewriter":
+            return
+        m = self.members(col, new)
+        if key not in m:
+            m.append(key)
+        self._atomic(self._c(col, new), "\n".join(m) + "\n")
+
+    def _agree(self, key, col, value):
+        """The reciprocal guard: r says value, and c lists key under value and under no other value."""
+        if FAULT == "noguard":
+            return True
+        if self.read_r(key, col) != value:
+            return False
+        cdir = self.stem / "c" / enc(col)
+        holders = []
+        for p in (cdir.iterdir() if cdir.is_dir() else []):
+            if p.is_file() and not p.name.startswith(".") and ".tmp-" not in p.name:
+                if key in [x for x in p.read_text(encoding="utf-8").splitlines() if x]:
+                    holders.append(p.name)
+        return holders == [enc(value)]
+
+    def put(self, key, col, value, level=3, writer="chadtab"):
+        self.lock(writer)
+        try:
+            seq = (self.journal()[-1]["seq"] + 1) if (self.stem / "j").is_file() and self.journal() else 1
+            old = self.read_r(key, col)
+            self._jot(seq, level, writer, "AHEAD", key, col, value)
+            self._atomic(self._r(key, col), value)                 # writer one: the row's reading
+            self._write_c(col, old, value, key)                    # writer two: the column's reading
+            if not self._agree(key, col, value):
+                if old is None:
+                    try:
+                        self._r(key, col).unlink()
+                    except OSError:
+                        pass
+                    self._drop_c(col, value, key)
+                else:
+                    self._atomic(self._r(key, col), old)
+                    self._drop_c(col, value, key)
+                    self._write_c(col, None, old, key)
+                self._jot(seq, level, writer, "FAILED", key, col, value)
+                raise Fail(f"the two writers disagree on {key}/{col}; the old value is back and the write is journalled FAILED", 4)
+            self._jot(seq, level, writer, "COMMIT", key, col, value)
+            if FAULT != "nosem":
+                self._atomic(self.stem / "s", f"{seq}\n")
+            return seq
+        finally:
+            self.unlock()
+
+    def _drop_c(self, col, value, key):
+        f = self._c(col, value)
+        m = [k for k in self.members(col, value) if k != key]
+        if m:
+            self._atomic(f, "\n".join(m) + "\n")
+        elif f.is_file():
+            f.unlink()
+
+    def get(self, key, col, level=3):
+        """The latest COMMITted value at or under the semaphore, written at a level >= the reader's."""
+        s = self.sem()
+        best = None
+        for d in self.journal():
+            if d["state"] != "COMMIT" or d["seq"] > s:
+                continue
+            if d["key"] != enc(key) or d["col"] != enc(col):
+                continue
+            if FAULT != "levelinv" and d["level"] < level:
+                continue
+            if FAULT == "levelinv" and d["level"] > level:
+                continue
+            best = d
+        return None if best is None else best["value"]
+
+    def verify(self):
+        """Faults as words: every r atom listed once in its c twin; every c member backed by r; the journal ends
+        each write COMMIT or FAILED; the semaphore names the last COMMIT."""
+        faults = []
+        r = self.stem / "r"
+        if r.is_dir():
+            for kd in sorted(r.iterdir()):
+                for cf in sorted(kd.iterdir()):
+                    if ".tmp-" in cf.name:
+                        faults.append(f"a half-written file {cf}")
+                        continue
+                    v = cf.read_text(encoding="utf-8")
+                    cdir = self.stem / "c" / cf.name
+                    holders = [p.name for p in (cdir.iterdir() if cdir.is_dir() else [])
+                               if p.is_file() and kd.name in p.read_text(encoding="utf-8").splitlines()]
+                    if holders != [enc(v)]:
+                        faults.append(f"r/{kd.name}/{cf.name} says {v!r} but c/{cf.name} lists it under {holders or 'nothing'}")
+        c = self.stem / "c"
+        if c.is_dir():
+            for cd in sorted(c.iterdir()):
+                for vf in sorted(cd.iterdir()):
+                    for k in vf.read_text(encoding="utf-8").splitlines():
+                        if k and not (self.stem / "r" / k / cd.name).is_file():
+                            faults.append(f"c/{cd.name}/{vf.name} lists {k} but r/{k}/{cd.name} is missing")
+        j = self.journal()
+        open_ = {}
+        last_commit = 0
+        for d in j:
+            if d["state"] == "AHEAD":
+                open_[d["seq"]] = d
+            else:
+                open_.pop(d["seq"], None)
+                if d["state"] == "COMMIT":
+                    last_commit = d["seq"]
+        for seq in open_:
+            faults.append(f"journal write {seq} was started and never finished")
+        if self.sem() != last_commit:
+            faults.append(f"the semaphore says {self.sem()} but the last commit is {last_commit}")
+        return faults
+
+
+def parse_c4(arg, vals):
+    """==> c4:STEM KEY COL VALUE (VALUE may be $field or text; the rest of the line)."""
+    m = re.fullmatch(r"c4:(\S+)\s+(\S+)\s+(\S+)\s+(.*)", arg)
+    if not m:
+        raise Fail(f"a BIND wants c4:STEM KEY COL VALUE: {arg!r}")
+    stem, key, col, val = m.groups()
+    return expand(stem, vals), expand(key, vals), expand(col, vals), expand(val, vals)
+
+
+# ---------------------------------------------------------------- running a block
+def now_iso():
+    return dt.datetime.now().replace(microsecond=0).isoformat()
+
+
+def run_block(env, block, base, level=3, at=None):
+    """Run one block's steps in order.  Returns the run record."""
+    rec = {"name": block.name, "start": (at or dt.datetime.now()).replace(microsecond=0).isoformat(), "exit": None,
+           "fields": {}, "binds": [], "ok": True}
+    t0 = time.time()
+    vals = {}
+    last_out = ""
+    e = dict(os.environ)
+    e.update(env)
+    for st in block.steps:
+        role, arg = st["role"], st["arg"]
+        try:
+            if role == "SINK" and arg.startswith("!"):
+                argv = shlex.split(expand(arg[1:], vals), posix=True)
+                p = subprocess.run(argv, cwd=str(base), env=e, capture_output=True, text=True, timeout=3600)
+                rec["exit"] = p.returncode
+                lines = [x for x in p.stdout.splitlines() if x.strip()]
+                last_out = lines[-1] if lines else ""
+                rec["out_tail"] = lines[-3:]
+                if p.returncode != 0:
+                    rec["ok"] = False
+                    rec["err_tail"] = [x for x in p.stderr.splitlines() if x.strip()][-3:]
+                    break
+            elif role == "CAPTURE":
+                vals.update(chadgram(last_out, arg.split()))
+                rec["fields"] = dict(vals)
+            elif role == "APPEND":
+                f = (base / expand(arg, vals))
+                f.parent.mkdir(parents=True, exist_ok=True)
+                rec["secs"] = round(time.time() - t0, 3)
+                with f.open("a", encoding="utf-8", newline="\n") as fh:
+                    fh.write(json.dumps(rec, sort_keys=True) + "\n")
+            elif role == "BIND" and arg.startswith("c4:"):
+                stem, key, col, val = parse_c4(arg, vals)
+                seq = Registry(base / stem).put(key, col, val, level=block.level, writer="chadtab." + block.name)
+                rec["binds"].append({"stem": stem, "key": key, "col": col, "seq": seq})
+            else:
+                raise Fail(f"line {st['line']}: {role} {arg!r} is not something chadtab runs yet")
+        except Fail as x:
+            rec["ok"] = False
+            rec["error"] = str(x)
+            break
+        except (OSError, subprocess.SubprocessError) as x:
+            rec["ok"] = False
+            rec["error"] = f"{type(x).__name__}: {x}"
+            break
+    rec["secs"] = round(time.time() - t0, 3)
+    return rec
+
+
+# ---------------------------------------------------------------- the daemon's state
+def load_state(sd):
+    f = sd / "last.json"
+    try:
+        return json.loads(f.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def save_state(sd, st):
+    sd.mkdir(parents=True, exist_ok=True)
+    Registry._atomic(sd / "last.json", json.dumps(st, indent=1, sort_keys=True))
+
+
+def due(blocks, st, t_prev, t_now, booting):
+    """Blocks to run at t_now: each whose clock fires in (t_prev, t_now]; a catchup block whose last run is
+    older than a fire it missed runs once; a boot block runs on boot."""
+    out = []
+    for b in blocks:
+        if b.clock.kind == "boot":
+            if booting:
+                out.append(b)
+            continue
+        f = b.clock.fires_after(t_prev)
+        if f is not None and f <= t_now:
+            out.append(b)
+            continue
+        if booting and b.catchup:
+            last = st.get(b.name, {}).get("start")
+            if last:
+                nf = b.clock.fires_after(dt.datetime.fromisoformat(last))
+                if nf is not None and nf <= t_now:
+                    out.append(b)
+    return out
+
+
+def daemon(table, sd, level, once_at=None):
+    base = Path(table).resolve().parent
+    env, tlevel, blocks = read_table(table)
+    st = load_state(sd)
+    booting = True
+    t_prev = dt.datetime.fromisoformat(once_at) - dt.timedelta(minutes=1) if once_at else dt.datetime.now().replace(microsecond=0)
+    while True:
+        t_now = dt.datetime.fromisoformat(once_at) if once_at else dt.datetime.now().replace(microsecond=0)
+        for b in due(blocks, st, t_prev, t_now, booting):
+            if b.level > level:
+                continue
+            rec = run_block(env, b, base, level, at=t_now)
+            st[b.name] = {"start": rec["start"], "ok": rec["ok"], "exit": rec["exit"], "secs": rec["secs"]}
+            hist = st.setdefault("_hist", {}).setdefault(b.name, [])
+            hist.append(1 if rec["ok"] else 0)
+            del hist[:-24]
+            save_state(sd, st)
+            with (sd / "runs.jsonl").open("a", encoding="utf-8", newline="\n") as fh:
+                fh.write(json.dumps(rec, sort_keys=True) + "\n")
+        booting = False
+        t_prev = t_now
+        if once_at:
+            return 0
+        nxt = [f for f in (b.clock.fires_after(t_now) for b in blocks) if f]
+        wait = min(((min(nxt) - dt.datetime.now()).total_seconds() if nxt else 60), 60)
+        time.sleep(max(1.0, wait))
+
+
+# ---------------------------------------------------------------- views
+def status(table, sd, at=None):
+    env, level, blocks = read_table(table)
+    st = load_state(sd)
+    now = at or dt.datetime.now().replace(microsecond=0)
+    rows = []
+    for b in blocks:
+        last = st.get(b.name, {})
+        nf = b.clock.fires_after(now)
+        rows.append({"name": b.name, "clock": b.clock.spec, "level": b.level, "catchup": b.catchup,
+                     "next": nf.isoformat() if nf else None, "last": last.get("start"), "ok": last.get("ok"),
+                     "exit": last.get("exit"), "secs": last.get("secs"), "hist": st.get("_hist", {}).get(b.name, []),
+                     "steps": [s["role"] for s in b.steps]})
+    return {"table": str(table), "level": level, "now": now.isoformat(), "blocks": rows}
+
+
+def strip(h):
+    return "".join("▮" if x else "▯" for x in h[-24:]) or "·"
+
+
+def render_top(s, width=100):
+    out = [f"chadtab  {s['table']}  run-level {s['level']}  {s['now'].replace('T', ' ')}", ""]
+    out.append(f"{'BLOCK':<16} {'CLOCK':<22} {'LV':>2} {'NEXT':<17} {'LAST':<17} {'RESULT':<8} {'SECS':>6}  RECENT")
+    for r in s["blocks"]:
+        res = "—" if r["ok"] is None else ("ok" if r["ok"] else f"FAIL {r['exit'] if r['exit'] is not None else ''}".strip())
+        out.append(f"{r['name'][:16]:<16} {r['clock'][:22]:<22} {r['level']:>2} {(r['next'] or '—').replace('T', ' ')[:16]:<17} "
+                   f"{(r['last'] or '—').replace('T', ' ')[:16]:<17} {res:<8} {('%.1f' % r['secs']) if r['secs'] is not None else '—':>6}  {strip(r['hist'])}")
+    out.append("")
+    out.append("▮ ok  ▯ failed   (q to quit; refreshes every 2 s)")
+    return "\n".join(x[:width] for x in out)
+
+
+def top(table, sd):
+    if os.name == "nt":
+        os.system("")                                        # turns on VT sequences in a Windows console
+    try:
+        while True:
+            sys.stdout.write("\x1b[H\x1b[2J" + render_top(status(table, sd)) + "\n")
+            sys.stdout.flush()
+            if key_q(2.0):
+                return 0
+    except KeyboardInterrupt:
+        return 0
+
+
+def key_q(secs):
+    t0 = time.time()
+    if os.name == "nt":
+        import msvcrt
+        while time.time() - t0 < secs:
+            if msvcrt.kbhit() and msvcrt.getwch() in "qQ":
+                return True
+            time.sleep(0.05)
+        return False
+    import select
+    import termios
+    import tty
+    fd = sys.stdin.fileno()
+    if not os.isatty(fd):
+        time.sleep(secs)
+        return False
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setcbreak(fd)
+        r, _, _ = select.select([sys.stdin], [], [], secs)
+        return bool(r) and sys.stdin.read(1) in "qQ"
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+
+# ---------------------------------------------------------------- starting with the session, without the Task Scheduler
+def startup(table, sd, write):
+    """Windows: a .cmd in the user's Startup folder that starts the daemon at sign-in (no Task Scheduler).
+    GNU/Linux: a systemd user unit.  Without --write it says what it would write and where, and writes nothing."""
+    table = str(Path(table).resolve())
+    me = str(Path(__file__).resolve())
+    if os.name == "nt":
+        start = Path(os.environ.get("APPDATA", str(Path.home()))) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+        py = Path(sys.executable)
+        pyw = py.with_name("pythonw.exe") if py.with_name("pythonw.exe").is_file() else py
+        dest = start / "chadtab.cmd"
+        body = f'@echo off\r\nrem chadtab: started at sign-in; remove this file to stop that.\r\nstart "" "{pyw}" "{me}" daemon "{table}" --state "{sd}"\r\n'
+    else:
+        dest = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "systemd" / "user" / "chadtab.service"
+        body = ("[Unit]\nDescription=chadtab, a successor to cron\n\n[Service]\n"
+                f"ExecStart={sys.executable} {me} daemon {table} --state {sd}\nRestart=on-failure\n\n[Install]\nWantedBy=default.target\n")
+    if not write:
+        print(f"would write {dest}:\n{body}\n(chadtab startup TABLE --write to write it" +
+              ("; then systemctl --user enable --now chadtab)" if os.name != "nt" else ")"))
+        return 0
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    Registry._atomic(dest, body)
+    print(f"wrote {dest}")
+    return 0
+
+
+# ---------------------------------------------------------------- main
+def opt(a, name, default=None):
+    if name in a:
+        i = a.index(name)
+        v = a[i + 1] if i + 1 < len(a) else None
+        del a[i:i + 2]
+        return v
+    return default
+
+
+def main(argv):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+    a = list(argv)
+    if not a or a[0] in ("-h", "--help"):
+        print(open(__file__, encoding="utf-8").read().split("import datetime")[0])
+        return 1
+    if a[0] == "--version":
+        print("chadtab " + VERSION)
+        return 0
+    if a[0] == "--prove-red":
+        kit = Path(__file__).resolve().parent / "tests" / "run.sh"
+        return subprocess.call(["sh", str(kit), "--prove-red"])
+    cmd = a.pop(0)
+    try:
+        sd = Path(opt(a, "--state") or os.environ.get("CHADTAB_STATE") or (Path.home() / ".chadtab"))
+        level = int(opt(a, "--level") or 3)
+        writer = opt(a, "--writer") or "chadtab"
+        frm = opt(a, "--from")
+        n = int(opt(a, "-n") or 3)
+        once = opt(a, "--once-at")
+        js = "--json" in a
+        a = [x for x in a if x not in ("--json", "--write")]
+        if cmd == "check" and len(a) == 1:
+            env, lv, blocks = read_table(a[0])
+            t = dt.datetime.fromisoformat(frm) if frm else dt.datetime.now().replace(second=0, microsecond=0)
+            print(f"{a[0]}: run-level {lv}; {len(env)} setting(s); {len(blocks)} block(s)")
+            for b in blocks:
+                fs, c = [], t
+                for _ in range(3):
+                    c = b.clock.fires_after(c)
+                    if c is None:
+                        break
+                    fs.append(c.isoformat(sep=" ", timespec="minutes"))
+                print(f"  {b.name}: {b.clock.spec} (level {b.level}{', catchup' if b.catchup else ''}); "
+                      f"{len(b.steps)} step(s) {' '.join(s['role'] for s in b.steps)}; next {', '.join(fs) or 'never (boot or past)'}")
+            return 0
+        if cmd == "clock" and len(a) in (2, 3):
+            c, t = Clock(a[0]), dt.datetime.fromisoformat(a[1])
+            for _ in range(int(a[2]) if len(a) == 3 else 1):
+                t = c.fires_after(t)
+                if t is None:
+                    break
+                print(t.isoformat(timespec="minutes"))
+            return 0
+        if cmd == "next" and len(a) == 1:
+            env, lv, blocks = read_table(a[0])
+            t = dt.datetime.fromisoformat(frm) if frm else dt.datetime.now().replace(second=0, microsecond=0)
+            out = []
+            for b in blocks:
+                c = t
+                for _ in range(n):
+                    c = b.clock.fires_after(c)
+                    if c is None:
+                        break
+                    out.append((c, b.name))
+            for c, name in sorted(out)[:n * max(1, len(blocks))]:
+                print(f"{c.isoformat(sep=' ', timespec='minutes')}  {name}")
+            return 0
+        if cmd == "run" and len(a) == 2:
+            env, lv, blocks = read_table(a[0])
+            b = next((x for x in blocks if x.name == a[1]), None)
+            if b is None:
+                raise Fail(f"no block named {a[1]!r}", 1)
+            rec = run_block(env, b, Path(a[0]).resolve().parent, level)
+            print(json.dumps(rec, sort_keys=True))
+            return 0 if rec["ok"] else 4
+        if cmd == "daemon" and len(a) == 1:
+            return daemon(a[0], sd, level, once)
+        if cmd == "status" and len(a) == 1:
+            s = status(a[0], sd)
+            print(json.dumps(s, indent=1) if js else render_top(s))
+            return 0
+        if cmd == "top" and len(a) == 1:
+            return top(a[0], sd)
+        if cmd == "put" and len(a) == 4:
+            seq = Registry(a[0]).put(a[1], a[2], a[3], level=level, writer=writer)
+            print(f"committed {a[1]}/{a[2]} as write {seq}")
+            return 0
+        if cmd == "get" and len(a) == 3:
+            v = Registry(a[0]).get(a[1], a[2], level)
+            if v is None:
+                print(f"nothing visible at level {level}", file=sys.stderr)
+                return 3
+            print(v)
+            return 0
+        if cmd == "verify" and len(a) == 1:
+            f = Registry(a[0]).verify()
+            for x in f:
+                print("FAULT " + x)
+            print("HOLDS" if not f else f"{len(f)} fault(s)")
+            return 0 if not f else 2
+        if cmd == "startup" and len(a) == 1:
+            return startup(a[0], sd, "--write" in sys.argv)
+        if cmd == "enc" and len(a) == 1:
+            print(enc(a[0]))
+            return 0
+        print("usage: chadtab check|next|run|daemon|top|status|put|get|verify|enc ... (chadtab --help)", file=sys.stderr)
+        return 1
+    except Fail as e:
+        print("chadtab: " + str(e), file=sys.stderr)
+        return e.code
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

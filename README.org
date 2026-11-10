@@ -1,0 +1,75 @@
+#+title: chadtab: a successor to cron
+#+author: Mentat (for Corwin Brust)
+
+chadtab runs your scheduled work. It works on its own, like cron, on GNU/Linux and on Windows alike, and it was written so the work it schedules can be seen: what runs when, how it went last time, and how it has been going. When it lives beside C4 it does one more thing cron never could: it writes what a job learned into a C4 registry with two writers that check each other, so another program on the same host can trust what it reads there.
+
+* Why another cron
+
+Cron is forty years old and still good at one thing. It is not good at telling you anything. When a job fails you find out from a full mailbox or not at all. On Windows there is no cron, and the Task Scheduler is a maze of dialog boxes that keeps its state where you cannot read it or keep it under version control.
+
+chadtab keeps the one good thing, a plain table you can read, and adds what was missing:
+
+- *the same table on every machine*: Windows and GNU/Linux read the same file, and Python's standard library is all it needs;
+- *its own record*: every run is one JSON line, and the last result and recent history of each job are kept where any tool can read them;
+- *a view*: =chadtab top= (in the spirit of btop), =M-x chadtab-status= in Emacs, and the C4 surface;
+- *catching up*: a job marked =catchup= runs once for a time it missed while the machine slept, as anacron does;
+- *run-levels*: a job can be held back until the host is at the level it needs;
+- *guarded writes* into C4 registries (below).
+
+* The table
+
+A chadtab is written in chad.tab, Corwin's little routing language (see the chadgram project). Its sources are clocks:
+
+#+begin_example
+# chadtab
+PATH=/usr/local/bin:/usr/bin:/bin
+RUNLEVEL=3
+*  backup   cron:17 3 * * *  catchup        three-seventeen every morning; once more if it was missed
+|  --->     !sh backup.sh                   run a command
+|  % <--- @ status bytes ..note             take its last output line apart into fields
+|  -->>     log/backup.jsonl                append this run's record
+|  ==>      c4:reg/hosts avalon backup $status   write the status into a C4 registry, guarded
+*  pulse    every:15m+4m                    four past each quarter hour, aligned to UTC
+*  start    boot                            each time chadtab starts
+#+end_example
+
+Read a block top to bottom: the =*= line names it and gives its clock; each =|= line is one step, and its arrow says what kind. =--->= sends to a command (=!= then the command), =<---= captures fields from the last output, =-->>= appends, ==\=\=>= binds a value into a registry. The clocks are =cron:= (the familiar five fields, with month and day names), =every:= (a period, with an optional offset), =at:= (one time) and =boot=.
+
+* Guarded writes: the second writer C4 requires
+
+A C4 registry keeps each fact twice: once as the row says it (=r/KEY/COL= holds the value) and once as the column says it (=c/COL/VALUE= lists the keys that hold it). That is the cxr layout, and it is what lets a person read a registry with =ls= and =cat=.
+
+Writing a fact twice is only safe if the two writes agree, so chadtab writes like this:
+
+1. it takes the registry's lock (a directory made with mkdir, which is atomic on every operating system);
+2. it writes the intention ahead into the journal =j=, as one chadgram line;
+3. writer one writes the row's side, writer two the column's side;
+4. each side is read back against the other (the reciprocal guard);
+5. only when they agree does the semaphore =s= move on, and only then can anyone read the new value;
+6. if they disagree, the old value goes back on both sides and the journal says FAILED.
+
+A reader names its run-level. It sees a write made at the same level or above, never one from below, and never past the semaphore. Two programs that share a run-level on one host can therefore pass state through a registry, each trusting that what it reads was written whole.
+
+* Using it
+
+#+begin_example
+chadtab check TABLE            does it read, and when will each block fire?
+chadtab next TABLE -n 10       the next ten fires, in order
+chadtab run TABLE NAME         run one block now
+chadtab daemon TABLE           the scheduler
+chadtab top TABLE              watch it
+chadtab startup TABLE          start with your session (a Startup-folder .cmd on Windows; a systemd user unit elsewhere)
+chadtab put|get|verify ...     the registry, by hand
+#+end_example
+
+In Emacs, load =chadtab.el= and =M-x chadtab-status=.
+
+* Checking it
+
+=sh tests/run.sh= checks every line of =tests/SPEC.txt=; =sh tests/run.sh --prove-red= plants seven faults and shows each one caught. The clocks are read twice, by the Python program and by =chadtab.el= in Emacs Lisp, which share no code; the hand-worked rows of =tests/VECTORS.tsv= were counted on a calendar. The registry's naming rule is checked against cxr's =tv1cr=, a third implementation in sh.
+
+* Credits
+
+The chad.tab language is Corwin's, from 2024. The registry layout is cxr's (C4). chadtab was written with Bryant Frankford and Corwin Brust (INPUTLOOP), by Mentat (for Corwin; claude-opus-5-5).
+
+GPL-3.0-or-later. Copyright 2026 INPUTLOOP (Bryant Frankford and Corwin Brust).

@@ -1,0 +1,6 @@
+# chadtab.com at Gandi LiveDNS: point the site at gw33 (chosen by the placement rubric, deploy/PLACEMENT.md).
+# Mail (MX, SPF, DKIM, SRV, webmail) is Gandi's and is not named here, so dn1or leaves it as it is.
+domain: chadtab.com
+provider: gandi
+set @   A     3600 149.5.245.7
+set www CNAME 3600 chadtab.com.

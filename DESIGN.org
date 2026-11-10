@@ -1,0 +1,35 @@
+#+title: chadtab: design notes, what is decided, what is read, what is open
+#+author: Mentat (for Corwin Brust)
+
+* What Corwin asked for (2026-11-10, in his words, kept short)
+
+- a successor to cron that works on its own and happens to have synergy with C4 and the ghostwheel;
+- for Windows in particular, because its task scheduling is "abysmal", with our usual GNU/Linux packaging (.deb), distribution and CI;
+- a uniform view for Emacs, for the surface, and for a stand-alone thick client (perhaps Emacs wrapped) "purposed to managing the scheduled work in terms of their graphs and seeing the operational state", after btop;
+- a C4 graph over elchad, serializing writes, wrapping mutating chadgrams with reciprocal guards that show the second writer C4 requires, when atoms are saved into a registry that lower or same order functionality may read after the write; for example a g/ registry hosting two applications that share a run-level.
+
+* Read as (each a reading of mine; correct any that is wrong)
+
+1. *The table is chad.tab.* A clock is a SOURCE (=*=); steps are TRUNK lines (=|=) with the grammar's arrows. Nothing new was added to the grammar: =cron:=, =every:=, =at:=, =boot= are the source's address, the way =udp://= is in the Savannah example, and =catchup= / =level=N= are trailing words (raw config to chadgram.tsv).
+2. *The second writer* is cxr's: the row's side and the column's side of one fact, written by two writers, each reading the other back. A write is visible only after both agree and the semaphore moves.
+3. *"Lower or same order functionality"* reads a write: a reader at run-level L sees writes made at level W when L <= W. [MINE] I may have this inverted (it could mean a write at L is for readers at L and above). Falsifier: say which, and the =levelinv= plant already shows the other reading turning the kit red, so the change is one comparison.
+4. *Serializing* is per registry (one lock per stem), not global: two registries never wait on each other.
+5. *Windows first-class without the Task Scheduler*: =chadtab startup= writes a .cmd into the user's Startup folder. It runs at sign-in, not at boot. [MINE] A machine nobody signs in to will not run chadtab this way; a Windows service needs a wrapper (pywin32, or a small native one). Falsifier: say if a sign-in start is not enough for avalon.
+
+* Decided in this first cut
+
+- Python 3.8+ standard library only (avalon's python is 3.8, 32-bit).
+- Commands run without a shell on every OS (split like a POSIX shell, no globbing): the same table means the same thing on Windows and GNU/Linux. A job that wants a shell says =!sh -c "..."=.
+- =every:= aligns to the epoch in UTC so two machines agree on when a period falls.
+- cron's day rule: when both day-of-month and day-of-week are restricted, either may match (Vixie cron's rule, POSIX's too).
+- The daemon wakes at least once a minute and at each fire; it keeps =last.json= (per block: last start, result, seconds, a 24-run history strip) and =runs.jsonl= (every run).
+
+* Open (with the reading I would take if nobody says)
+
+- *Daylight saving.* A cron fire inside a skipped hour is skipped; one inside a repeated hour runs once. That is what the naive local walk does today, untested. Vectors across 2027-03-14 (America/Chicago) are the next tests to write.
+- *The thick client.* Today there are three views over one =status --json=: =chadtab top=, =M-x chadtab-status=, and (next) a surface wall. A stand-alone client that wraps Emacs is the natural fourth: an Emacs started with only chadtab.el and the status view. Its graphs (which job feeds which registry, which reads it) come from the BIND steps.
+- *illi.* chadtab top and illi both want a btop-like jobs panel; chadtab's =status --json= could be illi's first source.
+- *A registry shared across hosts* goes through the ring (orgfs, WIRE-MESH), not through chadtab: chadtab's guarantee is per host.
+- *Overlapping arrows* (from chadgram's own open questions): chadtab tries arrows longest first in the grammar's order, as both chadgram readers do.
+
+GPL-3.0-or-later. Copyright 2026 INPUTLOOP (Bryant Frankford and Corwin Brust). Mentat (for Corwin; claude-opus-5-5).

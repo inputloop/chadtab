@@ -1,0 +1,5 @@
+# every: is aligned to the epoch in UTC, so its answer depends on the zone; each row names one.
+# Asia/Kolkata is UTC+05:30: local 13:07 is 07:37 UTC, the next whole UTC hour is 08:00 UTC = 13:30 local.
+Asia/Kolkata	every:1h	2026-11-10T13:07	2	2026-11-10T13:30 2026-11-10T14:30
+America/Chicago	every:15m+4m	2026-11-10T13:07	2	2026-11-10T13:19 2026-11-10T13:34
+UTC	every:1d+3h	2026-11-10T13:07	1	2026-11-11T03:00

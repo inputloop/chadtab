@@ -1,0 +1,8 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: chadtab
+Source: https://code.bru.st/corwin/chadtab
+
+Files: *
+Copyright: 2026 INPUTLOOP (Bryant Frankford and Corwin Brust)
+License: GPL-3+
+ On Debian systems the full text is in /usr/share/common-licenses/GPL-3.

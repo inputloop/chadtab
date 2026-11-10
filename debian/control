@@ -1,0 +1,15 @@
+Package: chadtab
+Version: @VERSION@
+Section: admin
+Priority: optional
+Architecture: all
+Depends: python3 (>= 3.8)
+Suggests: emacs-nox | emacs
+Maintainer: Corwin Brust <corwin@bru.st>
+Homepage: https://chadtab.com
+Description: successor to cron, with its own record and a view
+ chadtab runs scheduled work from one readable table on GNU/Linux and on
+ Windows alike, keeps a JSON record of every run, catches up on runs missed
+ while the machine was down, and shows how its jobs have been going (chadtab
+ top; M-x chadtab-status in Emacs). Beside C4 it writes what a job learned
+ into a registry with two writers that check each other.

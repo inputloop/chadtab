@@ -1,0 +1,6 @@
+build/
+dist/
+state/
+reg/
+__pycache__/
+deploy/*.plan

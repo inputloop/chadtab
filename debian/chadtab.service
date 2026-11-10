@@ -1,0 +1,10 @@
+[Unit]
+Description=chadtab, a successor to cron (per user: ~/.config/chadtab/chadtab.tab)
+ConditionPathExists=%h/.config/chadtab/chadtab.tab
+
+[Service]
+ExecStart=/usr/bin/chadtab daemon %h/.config/chadtab/chadtab.tab --state %h/.local/state/chadtab
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

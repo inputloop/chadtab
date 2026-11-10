@@ -1,0 +1,24 @@
+chadtab SPEC -- what it must do.  tests/run.sh checks each line (its number is in the failure).
+Copyright 2026 INPUTLOOP (Bryant Frankford and Corwin Brust); CC-BY-SA-4.0.  Mentat (for Corwin; claude-opus-5-5).
+
+1  A clock's next fires match the hand-worked rows of tests/VECTORS.tsv (counted on a calendar, not by either
+   reader), in both readers: chadtab (Python) and chadtab.el (Emacs Lisp).
+2  On the "agree" rows the two readers give the same fires.  They share no code: the Python one walks minutes and
+   skips ahead; the Lisp one walks days, then the hours and minutes the spec allows.
+3  every: is aligned to the epoch in UTC, so the same row in different zones gives the fires of tests/VECTORS-TZ.tsv.
+4  A table reads into settings, a run-level, and blocks with their clocks, levels and catchup; a malformed line
+   (a four-field cron, a step before any block, a step with no arrow, a second block of one name) is refused
+   with exit 2, naming its line where it has one.
+5  A run takes a command's last output line apart by the chadgram rules (the ..field keeps the rest), appends its
+   record as one JSON line, and binds a value into a registry with both writers (r and c), which then verifies.
+6  A guarded write advances the semaphore to its own number; the c side drops the old value; a reader at a level
+   at or under the writer's sees it, one above does not; nobody sees past the semaphore.
+7  When the two writers disagree, the write is refused (exit 4), the old value is put back on both sides, the
+   journal says FAILED, and the semaphore does not move.
+8  A held lock keeps a second writer out (exit 5) and nothing is written.
+9  The naming rule is cxr's: chadtab enc and tv1cr enc agree on every case (a separate sh implementation).
+10 The daemon, ticked at a set time, runs what is due and nothing else; a boot block runs on boot; a catchup
+   block runs once for a fire missed while it was down; a block above the daemon's level does not run; a minute
+   later the same block does not run again.
+11 status --json carries each block's last result and a history strip; the text view lists every block.
+Planted faults (--prove-red), each must turn the kit red: domor everylocal nolock onewriter noguard nosem levelinv.
