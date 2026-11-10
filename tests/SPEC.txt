@@ -21,4 +21,7 @@ Copyright 2026 INPUTLOOP (Bryant Frankford and Corwin Brust); CC-BY-SA-4.0.  Men
    block runs once for a fire missed while it was down; a block above the daemon's level does not run; a minute
    later the same block does not run again.
 11 status --json carries each block's last result, a history strip, its next day of fires (at most 96) and the registries it binds; the text view lists every block.
-Planted faults (--prove-red), each must turn the kit red: domor everylocal nolock onewriter noguard nosem levelinv.
+Planted faults (--prove-red), each must turn the kit red: domor everylocal nolock onewriter noguard nosem levelinv reserved.
+12 chadtab --reserved (the words, files, states, commands, exit codes and settings a build fixes) equals RESERVED in
+   the tree.  Outside the workshop these are hard-coded: a change is a new build with a new version, never an edit in
+   place; deploy/ci.sh holds a host's landing to the RESERVED it came with.

@@ -136,6 +136,9 @@ TAB
   TZ=UTC c daemon "$T/w/good.tab" --state "$S" --once-at 2026-11-10T13:06 >/dev/null 2>&1
   [ "$(grep -c '"stamp"' "$S/runs.jsonl")" = 1 ] || fail "10 stamp ran at 13:06 too"
 
+  # 12 the reserved surface: what this build fixes is what RESERVED says (a change to either is a rebuild)
+  [ "$(c --reserved)" = "$(cat "$here/RESERVED")" ] || fail "12 chadtab --reserved differs from RESERVED: $(c --reserved | diff - "$here/RESERVED" | head -3 | tr '\n' ' ')"
+
   # 11 the views: status as JSON for Emacs and the surface; the text view has every block
   o=$(c status "$T/w/good.tab" --state "$S" --json) || fail "11 status json"
   echo "$o" | "$PY" -c 'import json,sys; s=json.load(sys.stdin); b={x["name"]:x for x in s["blocks"]}; assert b["stamp"]["ok"] is True and b["stamp"]["hist"]==[1] and b["deep"]["last"] is None and len(b["stamp"]["fires24"])==96 and b["stamp"]["binds"]==["reg"] and len(b["deep"]["fires24"])==24' 2>/dev/null || fail "11 status fields: $o"
@@ -145,12 +148,12 @@ TAB
 if [ "${1:-}" != --prove-red ]; then
   FAULT=; run_tests
   [ -n "$notchecked" ] && echo "NOT CHECKED: $notchecked"
-  [ $red = 0 ] && { echo "GREEN: chadtab tests (SPEC 1-11)"; exit 0; } || { echo "RED: $red failure(s)"; exit 1; }
+  [ $red = 0 ] && { echo "GREEN: chadtab tests (SPEC 1-12)"; exit 0; } || { echo "RED: $red failure(s)"; exit 1; }
 fi
 FAULT=; run_tests; [ $red = 0 ] || { echo "KIT BROKEN: the clean run is red"; exit 2; }
 bad=0
-for f in domor everylocal nolock onewriter noguard nosem levelinv; do
+for f in domor everylocal nolock onewriter noguard nosem levelinv reserved; do
   FAULT=$f; run_tests >/dev/null 2>&1
   if [ $red -gt 0 ]; then echo "RED as planted: $f ($red)"; else echo "MISSED: $f did not turn the kit red"; bad=1; fi
 done
-[ $bad = 0 ] && { echo "PROVE-RED OK: 7 planted faults each turned the kit red"; exit 0; } || exit 1
+[ $bad = 0 ] && { echo "PROVE-RED OK: 8 planted faults each turned the kit red"; exit 0; } || exit 1

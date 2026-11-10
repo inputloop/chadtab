@@ -12,7 +12,7 @@ $(DEB): chadtab chadtab.el README.org debian/control debian/copyright debian/cha
 	sed 's/@VERSION@/$(VERSION)/' debian/control > build/deb/DEBIAN/control
 	install -m 755 chadtab build/deb/usr/bin/chadtab
 	install -m 644 chadtab.el build/deb/usr/share/emacs/site-lisp/chadtab/chadtab.el
-	install -m 644 README.org DESIGN.org debian/copyright build/deb/usr/share/doc/chadtab/
+	install -m 644 README.org DESIGN.org RESERVED debian/copyright build/deb/usr/share/doc/chadtab/
 	install -m 644 debian/chadtab.service build/deb/usr/lib/systemd/user/chadtab.service
 	dpkg-deb --root-owner-group --build build/deb $@
 	cd dist && sha256sum $(notdir $@) > $(notdir $@).sha256

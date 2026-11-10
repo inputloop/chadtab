@@ -44,7 +44,7 @@
 #         chadtab enc STRING                       the cxr naming rule, applied to one string
 #         chadtab startup TABLE [--write]          start the daemon at sign-in: a .cmd in the Windows Startup folder
 #                                                  (no Task Scheduler), or a systemd user unit; says first, writes on --write
-#         chadtab --version | --prove-red
+#         chadtab --version | --reserved | --prove-red   (--reserved: what a build fixes; see RESERVED)
 # exit:   0 ok  1 usage  2 table or registry fault  3 nothing visible  4 a guard refused  5 lock not taken
 #
 # Copyright 2026 INPUTLOOP (Bryant Frankford and Corwin Brust).  SPDX-License-Identifier: GPL-3.0-or-later
@@ -60,7 +60,7 @@ import sys
 import time
 from pathlib import Path
 
-VERSION = "0.1.1 (2026-11-10)"
+VERSION = "0.2.0 (2026-11-10)"
 FAULT = os.environ.get("CHADTAB_FAULT", "")            # planted faults, for --prove-red only
 
 
@@ -749,6 +749,28 @@ def startup(table, sd, write):
     return 0
 
 
+# ---------------------------------------------------------------- the reserved surface
+def reserved():
+    """What a build of chadtab fixes, one item a line: the words a table may use, the files it writes and their
+    shapes, its commands and its exit codes.  Outside the workshop (a minted .deb, a host's landing) these are
+    hard-coded: changing any of them is a new build with a new version, never an edit in place.  RESERVED in the
+    source tree holds the same lines; tests/run.sh holds the two equal, and deploy/ci.sh holds a landing to it."""
+    out = ["version " + VERSION.split()[0]]
+    out += ["clock " + c for c in ("cron:", "every:", "at:", "boot")]
+    out += ["word catchup", "word level=", "setting RUNLEVEL", "mark !"]
+    out += ["arrow %s %s" % (t, r) for t, r in ARROWS]
+    out += ["bind c4:STEM KEY COL VALUE"]
+    out += ["file STEM/.lock", "file STEM/j seq when level writer state key col ..value",
+            "file STEM/r/KEY/COL", "file STEM/c/COL/VALUE", "file STEM/s", "file STATE/last.json", "file STATE/runs.jsonl"]
+    out += ["state " + x for x in ("AHEAD", "COMMIT", "FAILED")]
+    out += ["command " + x for x in ("check", "next", "clock", "run", "daemon", "top", "status", "put", "get", "verify", "enc", "startup")]
+    out += ["exit 0 ok", "exit 1 usage", "exit 2 table or registry fault", "exit 3 nothing visible", "exit 4 a guard refused", "exit 5 lock not taken"]
+    out += ["env CHADTAB_STATE", "env CHADTAB_LOCK_WAIT"]
+    if FAULT == "reserved":
+        out.append("command added-without-a-rebuild")
+    return "\n".join(out)
+
+
 # ---------------------------------------------------------------- main
 def opt(a, name, default=None):
     if name in a:
@@ -768,6 +790,9 @@ def main(argv):
     if not a or a[0] in ("-h", "--help"):
         print(open(__file__, encoding="utf-8").read().split("import datetime")[0])
         return 1
+    if a[0] == "--reserved":
+        print(reserved())
+        return 0
     if a[0] == "--version":
         print("chadtab " + VERSION)
         return 0

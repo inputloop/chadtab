@@ -1,0 +1,45 @@
+version 0.2.0
+clock cron:
+clock every:
+clock at:
+clock boot
+word catchup
+word level=
+setting RUNLEVEL
+mark !
+arrow <--> DUPLEX
+arrow <--- CAPTURE
+arrow ---> SINK
+arrow -->> APPEND
+arrow ==> BIND
+bind c4:STEM KEY COL VALUE
+file STEM/.lock
+file STEM/j seq when level writer state key col ..value
+file STEM/r/KEY/COL
+file STEM/c/COL/VALUE
+file STEM/s
+file STATE/last.json
+file STATE/runs.jsonl
+state AHEAD
+state COMMIT
+state FAILED
+command check
+command next
+command clock
+command run
+command daemon
+command top
+command status
+command put
+command get
+command verify
+command enc
+command startup
+exit 0 ok
+exit 1 usage
+exit 2 table or registry fault
+exit 3 nothing visible
+exit 4 a guard refused
+exit 5 lock not taken
+env CHADTAB_STATE
+env CHADTAB_LOCK_WAIT
