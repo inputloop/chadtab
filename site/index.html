@@ -6,10 +6,13 @@
 <meta name="description" content="chadtab, the hygiene routine for hunky hosts: a successor to cron that runs scheduled work on GNU/Linux and Windows from one readable table, makes up the runs it missed, and keeps a record of every one.">
 <link rel="stylesheet" href="style.css">
 <main>
+<div class="open">
+<div class="intro">
 <p class="kicker">inputloop · free software · GPL-3.0-or-later</p>
 <h1>chadtab</h1>
 <p class="tagline">The hygiene routine for hunky hosts.<br>Cron that never skips leg day.</p>
 <p class="lede">A successor to cron. One plain table runs your scheduled work on GNU/Linux and on Windows alike, makes up the runs it missed, keeps a record of every one, and shows you how it has been going.</p>
+</div>
 
 <pre class="tab" aria-label="an example chadtab">
 <span class="c"># chadtab: today's routine</span>
@@ -22,6 +25,7 @@ PATH=/usr/local/bin:/usr/bin:/bin
 <span class="s">*</span>  pulse    <span class="k">every:15m+4m</span>
 <span class="s">*</span>  start    <span class="k">boot</span>
 </pre>
+</div>
 
 <h2>The routine</h2>
 <ul class="routine">
@@ -41,11 +45,16 @@ PATH=/usr/local/bin:/usr/bin:/bin
 <p><code>chadtab top</code> in a terminal, <code>M-x chadtab-status</code> in Emacs.</p></li>
 </ul>
 
+<div class="pair">
+<section>
 <h2>What it keeps from cron</h2>
 <p>A table you can read, keep under version control, and copy between machines. Five-field cron times, with month and day names. Chad respects his elders.</p>
-
+</section>
+<section>
 <h2>Get it</h2>
-<p>The source lives on code.bru.st, for now as a private repository; this page will link it when it opens. A Debian package comes with each release.</p>
+<p>The source is free software, public on GitHub: <a href="https://github.com/inputloop/chadtab">inputloop/chadtab</a>. It is written in chad.tab, whose grammar and readers live in their own project. A Debian package comes with each release; on Windows, Python and one command are all it takes.</p>
+</section>
+</div>
 
 <footer>
 <p>Made by INPUTLOOP: Bryant Frankford and Corwin Brust, with Mentat. The chad.tab language is Corwin's. The lines in bold are Chad's; the facts under them are the program's.</p>
