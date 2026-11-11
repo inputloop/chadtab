@@ -1,0 +1,6 @@
+# chadtab.net at Gandi LiveDNS: a mirror of chadtab.com (Chad's hall of mirrors): gw33 answers 301 to chadtab.com.
+# Mail and anything else not named here stays as it is.
+domain: chadtab.net
+provider: gandi
+set @   A     3600 149.5.245.7
+set www CNAME 3600 chadtab.net.
