@@ -2,16 +2,17 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>chadtab, a successor to cron</title>
-<meta name="description" content="chadtab runs scheduled work on GNU/Linux and Windows from one readable table, keeps its own record, and shows you how it is going.">
+<title>chadtab: cron that never skips leg day</title>
+<meta name="description" content="chadtab, the hygiene routine for hunky hosts: a successor to cron that runs scheduled work on GNU/Linux and Windows from one readable table, makes up the runs it missed, and keeps a record of every one.">
 <link rel="stylesheet" href="style.css">
 <main>
 <p class="kicker">inputloop · free software · GPL-3.0-or-later</p>
 <h1>chadtab</h1>
-<p class="lede">A successor to cron. One plain table runs your scheduled work on GNU/Linux and on Windows alike, keeps a record of every run, and shows you how it has been going.</p>
+<p class="tagline">The hygiene routine for hunky hosts.<br>Cron that never skips leg day.</p>
+<p class="lede">A successor to cron. One plain table runs your scheduled work on GNU/Linux and on Windows alike, makes up the runs it missed, keeps a record of every one, and shows you how it has been going.</p>
 
 <pre class="tab" aria-label="an example chadtab">
-<span class="c"># chadtab</span>
+<span class="c"># chadtab: today's routine</span>
 PATH=/usr/local/bin:/usr/bin:/bin
 <span class="s">*</span>  backup   <span class="k">cron:17 3 * * *</span>  catchup
 <span class="t">|</span>  <span class="a">---&gt;</span>     !sh backup.sh
@@ -22,27 +23,33 @@ PATH=/usr/local/bin:/usr/bin:/bin
 <span class="s">*</span>  start    <span class="k">boot</span>
 </pre>
 
-<h2>What it keeps from cron</h2>
-<p>A table you can read, keep under version control, and copy between machines. Five-field cron times, with month and day names.</p>
-
-<h2>What it adds</h2>
-<ul>
-<li><b>The same table on Windows</b>, without the Task Scheduler: <code>chadtab startup</code> starts it when you sign in. Python's standard library is all it needs.</li>
-<li><b>Its own record</b>: every run is one line of JSON; each job's last result and recent history are kept where any tool can read them.</li>
-<li><b>A view</b>: <code>chadtab top</code> in a terminal, <code>M-x chadtab-status</code> in Emacs.</li>
-<li><b>Catching up</b>: a job marked <code>catchup</code> runs once for a time it missed while the machine slept.</li>
-<li><b>Run-levels</b>: a job can wait until its host is at the level it needs.</li>
-<li><b>Guarded writes into C4 registries</b>: a fact a job learns is written twice, by two writers that read each other back, and nobody sees it until both agree.</li>
+<h2>The routine</h2>
+<ul class="routine">
+<li><p class="says">Never skips leg day.</p>
+<p>A job marked <code>catchup</code> runs once for a time it missed while the machine slept or was switched off. Plain cron just lets that one go.</p></li>
+<li><p class="says">Logs every rep.</p>
+<p>Every run is one line of JSON: what ran, when, how long, what it said and how it ended. Each job's last result and recent history are kept where any tool can read them.</p></li>
+<li><p class="says">Same routine at any gym.</p>
+<p>The same table runs on GNU/Linux and on Windows, without the Task Scheduler: <code>chadtab startup</code> starts it when you sign in. Python's standard library is all it needs.</p></li>
+<li><p class="says">Warms up before the heavy lifts.</p>
+<p>Run-levels: a job can wait until its host is at the level it needs.</p></li>
+<li><p class="says">Always lifts with a spotter.</p>
+<p>A fact a job learns can be written into a C4 registry by two writers that read each other back. Nobody sees it until both agree; if they disagree, the old value goes back on both sides and the journal says so.</p></li>
+<li><p class="says">Checks his form in the mirror. Twice.</p>
+<p>Every clock is read by two programs that share no code, one in Python and one in Emacs Lisp, against rows counted by hand on a calendar. Eight planted faults are each caught by the tests, and three more by the check that holds the program to its grammar. The tests run here, hourly, by chadtab itself: <a href="ci/">see the latest set</a>.</p></li>
+<li><p class="says">Shows you the numbers.</p>
+<p><code>chadtab top</code> in a terminal, <code>M-x chadtab-status</code> in Emacs.</p></li>
 </ul>
 
-<h2>Checked twice</h2>
-<p>Every clock is read by two programs that share no code, one in Python and one in Emacs Lisp, against rows counted by hand on a calendar. Seven planted faults are each caught by the tests. The tests run here, hourly, by chadtab itself: <a href="ci/">see the latest run</a>.</p>
+<h2>What it keeps from cron</h2>
+<p>A table you can read, keep under version control, and copy between machines. Five-field cron times, with month and day names. Chad respects his elders.</p>
 
 <h2>Get it</h2>
 <p>The source lives on code.bru.st, for now as a private repository; this page will link it when it opens. A Debian package comes with each release.</p>
 
 <footer>
-<p>Made by INPUTLOOP: Bryant Frankford and Corwin Brust, with Mentat. The chad.tab language is Corwin's.</p>
+<p>Made by INPUTLOOP: Bryant Frankford and Corwin Brust, with Mentat. The chad.tab language is Corwin's. The lines in bold are Chad's; the facts under them are the program's.</p>
+<p class="small">chadtab.net and chadtab.org lead here too: Chad's hall of mirrors.</p>
 <p class="small">Privacy: this site sets no cookies and runs no scripts. The web server keeps an ordinary access log (address, time, page) for running the site; nothing from it is shared.</p>
 </footer>
 </main>

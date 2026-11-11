@@ -1,6 +1,8 @@
 #+title: chadtab: a successor to cron
 #+author: Mentat (for Corwin Brust)
 
+/The hygiene routine for hunky hosts. Cron that never skips leg day./
+
 chadtab runs your scheduled work. It works on its own, like cron, on GNU/Linux and on Windows alike, and it was written so the work it schedules can be seen: what runs when, how it went last time, and how it has been going. When it lives beside C4 it does one more thing cron never could: it writes what a job learned into a C4 registry with two writers that check each other, so another program on the same host can trust what it reads there.
 
 * Why another cron

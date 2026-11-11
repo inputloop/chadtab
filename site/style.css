@@ -18,3 +18,9 @@ pre.tab .c { color: var(--ink2); } pre.tab .s, pre.tab .t { color: var(--accent)
 ul { padding-left: 1.2rem; } li { margin: 0.35rem 0; }
 footer { margin-top: 3rem; border-top: 1px solid var(--rule); padding-top: 1rem; color: var(--ink2); font-size: 15px; }
 .small { font-size: 14px; color: var(--ink2); }
+.tagline { font: 600 1.35rem/1.35 ui-monospace, "IBM Plex Mono", Menlo, Consolas, monospace; color: var(--accent); margin: 0 0 1rem; }
+ul.routine { list-style: none; padding-left: 0; }
+ul.routine li { margin: 0 0 1rem; padding-left: 0.9rem; border-left: 3px solid var(--rule); }
+ul.routine p { margin: 0.15rem 0; }
+.says { font-weight: 700; }
+@media (max-width: 30rem) { .tagline { font-size: 1.05rem; } }
