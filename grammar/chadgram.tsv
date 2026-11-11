@@ -1,0 +1,17 @@
+# chadgram: the chad.tab grammar, written once. Every reader loads this file; none restates it.
+# kind<TAB>token<TAB>role.  "symbols" lists the characters a symbol is drawn from (space too).
+# Arrows are tried longest first, then single characters; any other run is RC (raw config).
+# Reverse-read from c4/a/chadtab.4 (2026-09-11), its 23 rows the oracle (Corwin, 2026-10-06).
+symbols	|\%@$*<>=-#	-
+arrow	<-->	DUPLEX
+arrow	<---	CAPTURE
+arrow	--->	SINK
+arrow	-->>	APPEND
+arrow	==>	BIND
+char	|	TRUNK
+char	\	BRANCH
+char	%	MAP
+char	@	ARRAY
+char	$	SCALAR
+char	*	SOURCE
+other	-	RC

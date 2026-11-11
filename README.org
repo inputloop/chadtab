@@ -68,9 +68,22 @@ In Emacs, load =chadtab.el= and =M-x chadtab-status=.
 
 =chadtab --reserved= prints what this build holds fixed: the clocks and words a table may use, the arrows, the registry's files and line shapes, the journal's states, the commands, exit codes and settings. =RESERVED= in the source holds the same lines, and the tests hold the two equal. Where chadtab has been built and placed (a .deb, a host), none of these is changed in place: a change is a new build with a new version. (C4's rule: =man/brackets-and-reserved.md=.)
 
+* Where things live
+
+Two repositories, one language and one program written in it:
+
+- *chadgram* is the language: the grammar (=chadgram.tsv=) and its three readers (awk, Perl, Emacs Lisp).
+  It was born routing Savannah's datagrams and is used beyond scheduling.
+- *chadtab* (this one) is the scheduler written in it, with chadtab.com (=site/=) and how both are put on a host
+  (=deploy/=).
+
+Each lives first on code.bru.st (=corwin/chadtab=, =corwin/chadgram=) and is mirrored to inputloop on GitHub for
+the lab partners.  chadtab keeps a pinned copy of the grammar in =grammar/=, at the chadgram commit =chadtab.m4=
+names; =sh tests/grammar.sh= holds the program, the copy and chadgram to each other (=CUT=1= for a release).
+
 * Checking it
 
-=sh tests/run.sh= checks every line of =tests/SPEC.txt=; =sh tests/run.sh --prove-red= plants eight faults and shows each one caught. The clocks are read twice, by the Python program and by =chadtab.el= in Emacs Lisp, which share no code; the hand-worked rows of =tests/VECTORS.tsv= were counted on a calendar. The registry's naming rule is checked against cxr's =tv1cr=, a third implementation in sh.
+=sh tests/run.sh= checks every line of =tests/SPEC.txt=; =sh tests/grammar.sh= checks the version and the grammar against =chadtab.m4= and chadgram; =sh tests/run.sh --prove-red= plants eight faults and shows each one caught. The clocks are read twice, by the Python program and by =chadtab.el= in Emacs Lisp, which share no code; the hand-worked rows of =tests/VECTORS.tsv= were counted on a calendar. The registry's naming rule is checked against cxr's =tv1cr=, a third implementation in sh.
 
 * Credits
 
